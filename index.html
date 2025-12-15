@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AR Redirect</title>
+</head>
+<body>
+  <script>
+    const isIOS =
+      /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+    // iOS → Quick Look сторінка, інші → WebXR сторінка
+    location.replace(isIOS ? "./ar-ios.html" : "./ar-android.html");
+  </script>
+
+  <noscript>Увімкни JavaScript</noscript>
+</body>
+</html>

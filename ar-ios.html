@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="uk">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>iOS AR (Quick Look)</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0b0b0b;
+        touch-action: manipulation;
+      }
+      model-viewer {
+        width: 100%;
+        height: 100%;
+      }
+      #ui {
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        color: #fff;
+        font: 14px/1.4 system-ui, sans-serif;
+        background: rgba(0, 0, 0, 0.45);
+        padding: 10px 12px;
+        border-radius: 12px;
+        pointer-events: none;
+      }
+    </style>
+
+    <script
+      type="module"
+      src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"
+    ></script>
+  </head>
+  <body>
+    <model-viewer
+      src="./models/cube.glb"
+      ar
+      ar-modes="quick-look"
+      camera-controls
+      autoplay
+      shadow-intensity="1"
+      alt="AR Cube"
+    >
+    </model-viewer>
+
+    <div id="ui">
+      Натисни кнопку AR (іконка куба) — відкриється Quick Look. Там торкнись
+      столу, щоб розмістити модель.
+    </div>
+  </body>
+</html>

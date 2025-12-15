@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="uk">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Android AR (WebXR Hit Test)</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+        touch-action: manipulation;
+      }
+      #ui {
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        color: #fff;
+        font: 14px/1.4 system-ui, sans-serif;
+        background: rgba(0, 0, 0, 0.45);
+        padding: 10px 12px;
+        border-radius: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="ui">
+      Натисни “Start AR”, наведи на стіл — з’явиться приціл. Тапни, щоб
+      поставити куб.
+    </div>
+
+    <script type="module">
+      import * as THREE from "https://unpkg.com/three@0.161.0/build/three.module.js";
+      import { ARButton } from "https://unpkg.com/three@0.161.0/examples/jsm/webxr/ARButton.js";
+
+      let camera, scene, renderer;
+      let reticle,
+        hitTestSource = null,
+        viewerSpace = null,
+        localSpace = null;
+      let hitTestSourceRequested = false;
+
+      init();
+      renderer.setAnimationLoop(render);
+
+      function init() {
+        scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera(
+          70,
+          innerWidth / innerHeight,
+          0.01,
+          20
+        );
+
+        const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
+        scene.add(light);
+
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setPixelRatio(devicePixelRatio);
+        renderer.setSize(innerWidth, innerHeight);
+        renderer.xr.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        // Reticle (приціл)
+        reticle = new THREE.Mesh(
+          new THREE.RingGeometry(0.06, 0.08, 32).rotateX(-Math.PI / 2),
+          new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.9 })
+        );
+        reticle.matrixAutoUpdate = false;
+        reticle.visible = false;
+        scene.add(reticle);
+
+        const btn = ARButton.createButton(renderer, {
+          requiredFeatures: ["hit-test"],
+          optionalFeatures: ["anchors"],
+        });
+        document.body.appendChild(btn);
+
+        renderer.xr.addEventListener("sessionstart", () => {
+          renderer.domElement.addEventListener("click", placeCube);
+        });
+        renderer.xr.addEventListener("sessionend", resetXR);
+
+        addEventListener("resize", () => {
+          camera.aspect = innerWidth / innerHeight;
+          camera.updateProjectionMatrix();
+          renderer.setSize(innerWidth, innerHeight);
+        });
+      }
+
+      function resetXR() {
+        renderer.domElement.removeEventListener("click", placeCube);
+        hitTestSourceRequested = false;
+        hitTestSource = null;
+        viewerSpace = null;
+        localSpace = null;
+        reticle.visible = false;
+      }
+
+      function placeCube() {
+        if (!reticle.visible) return;
+
+        const geo = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+        const mat = new THREE.MeshStandardMaterial();
+        const cube = new THREE.Mesh(geo, mat);
+
+        cube.position.setFromMatrixPosition(reticle.matrix);
+        cube.quaternion.setFromRotationMatrix(reticle.matrix);
+
+        // Підняти на половину висоти куба, щоб стояв на столі
+        cube.position.y += 0.05;
+
+        scene.add(cube);
+      }
+
+      async function render(t, frame) {
+        const session = renderer.xr.getSession();
+
+        if (frame) {
+          if (!hitTestSourceRequested) {
+            viewerSpace = await session.requestReferenceSpace("viewer");
+            hitTestSource = await session.requestHitTestSource({
+              space: viewerSpace,
+            });
+            localSpace = await session.requestReferenceSpace("local");
+            hitTestSourceRequested = true;
+
+            session.addEventListener("end", resetXR);
+          }
+
+          const results = frame.getHitTestResults(hitTestSource);
+          if (results.length) {
+            const pose = results[0].getPose(localSpace);
+            reticle.visible = true;
+            reticle.matrix.fromArray(pose.transform.matrix);
+          } else {
+            reticle.visible = false;
+          }
+        }
+
+        renderer.render(scene, camera);
+      }
+    </script>
+  </body>
+</html>
