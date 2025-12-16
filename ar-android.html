@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Android AR (WebXR Hit Test + GLB)</title>
+    <title>Android AR (WebXR Hit Test)</title>
     <style>
       html, body {
         margin: 0;
@@ -19,39 +19,31 @@
         bottom: 12px;
         color: #fff;
         font: 14px/1.4 system-ui, sans-serif;
-        background: rgba(0, 0, 0, 0.45);
+        background: rgba(0,0,0,0.45);
         padding: 10px 12px;
         border-radius: 12px;
         z-index: 10;
-        pointer-events: none;
       }
-      #status {
-        margin-top: 6px;
-        opacity: 0.85;
-        font-size: 12px;
-      }
+      #status { margin-top: 6px; opacity: .9; font-size: 12px; }
     </style>
   </head>
   <body>
     <div id="ui">
       Натисни “Start AR”, наведи на стіл — з’явиться приціл. Тапни, щоб
-      поставити модель.
-      <div id="status">Завантаження моделі…</div>
+      поставити куб.
+      <div id="status">Кубів: 0</div>
     </div>
 
     <script type="module">
       import * as THREE from "https://unpkg.com/three@0.161.0/build/three.module.js";
       import { ARButton } from "https://unpkg.com/three@0.161.0/examples/jsm/webxr/ARButton.js";
-      import { GLTFLoader } from "https://unpkg.com/three@0.161.0/examples/jsm/loaders/GLTFLoader.js";
 
       let camera, scene, renderer;
-      let reticle;
+      let reticle, controller;
       let hitTestSource = null, viewerSpace = null, localSpace = null;
       let hitTestSourceRequested = false;
 
-      let modelTemplate = null;
-      let controller = null;
-
+      let count = 0;
       const statusEl = document.getElementById("status");
 
       init();
@@ -60,11 +52,11 @@
       function init() {
         scene = new THREE.Scene();
 
-        camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.01, 30);
+        camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.01, 20);
 
-        // Світло
-        scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
-        const dir = new THREE.DirectionalLight(0xffffff, 1.2);
+        // Світло (зробимо сильніше і додамо Directional)
+        scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.6));
+        const dir = new THREE.DirectionalLight(0xffffff, 2.0);
         dir.position.set(1, 2, 1);
         scene.add(dir);
 
@@ -77,7 +69,7 @@
         // Reticle
         reticle = new THREE.Mesh(
           new THREE.RingGeometry(0.06, 0.08, 32).rotateX(-Math.PI / 2),
-          new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 })
+          new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95 })
         );
         reticle.matrixAutoUpdate = false;
         reticle.visible = false;
@@ -91,9 +83,9 @@
           })
         );
 
-        // XR controller (важливо!)
+        // Надійний tap в XR: controller select
         controller = renderer.xr.getController(0);
-        controller.addEventListener("select", placeAtReticle);
+        controller.addEventListener("select", placeCube);
         scene.add(controller);
 
         renderer.xr.addEventListener("sessionend", resetXR);
@@ -103,41 +95,6 @@
           camera.updateProjectionMatrix();
           renderer.setSize(innerWidth, innerHeight);
         });
-
-        loadModel("models/cube.glb");
-      }
-
-      function loadModel(url) {
-        const loader = new GLTFLoader();
-        loader.load(
-          url,
-          (gltf) => {
-            modelTemplate = gltf.scene;
-
-            // Дебаг: вимкнути "зникання" через frustumCulled
-            modelTemplate.traverse((o) => {
-              o.frustumCulled = false;
-            });
-
-            // Стартовий масштаб (часто треба крутити)
-            modelTemplate.scale.set(0.3, 0.3, 0.3);
-
-            statusEl.textContent = "Модель завантажена ✅ Тапни, щоб поставити.";
-            console.log("Model loaded:", url);
-          },
-          (xhr) => {
-            if (xhr.total) {
-              const p = Math.round((xhr.loaded / xhr.total) * 100);
-              statusEl.textContent = `Завантаження моделі… ${p}%`;
-            } else {
-              statusEl.textContent = "Завантаження моделі…";
-            }
-          },
-          (err) => {
-            statusEl.textContent = "Помилка GLB ❌ Перевір шлях ./models/ і сервер (не file://)";
-            console.error("GLB load error:", err);
-          }
-        );
       }
 
       function resetXR() {
@@ -148,33 +105,30 @@
         reticle.visible = false;
       }
 
-      function placeAtReticle() {
+      function placeCube() {
         if (!reticle.visible) return;
 
-        // Якщо модель не завантажилась — ставимо кубик (дебаг)
-        if (!modelTemplate) {
-          const cube = new THREE.Mesh(
-            new THREE.BoxGeometry(0.1, 0.1, 0.1),
-            new THREE.MeshStandardMaterial({ color: 0xff00ff })
-          );
-          cube.position.setFromMatrixPosition(reticle.matrix);
-          cube.quaternion.setFromRotationMatrix(reticle.matrix);
-          cube.position.y += 0.05;
-          scene.add(cube);
+        const geo = new THREE.BoxGeometry(0.12, 0.12, 0.12);
 
-          statusEl.textContent = "GLB ще не готовий — поставив куб (дебаг).";
-          return;
-        }
+        // Яскравий матеріал, щоб точно було видно на камері
+        const mat = new THREE.MeshStandardMaterial({
+          color: 0xff00ff,
+          roughness: 0.35,
+          metalness: 0.05,
+        });
 
-        const obj = modelTemplate.clone(true);
+        const cube = new THREE.Mesh(geo, mat);
 
-        obj.position.setFromMatrixPosition(reticle.matrix);
-        obj.quaternion.setFromRotationMatrix(reticle.matrix);
+        cube.position.setFromMatrixPosition(reticle.matrix);
+        cube.quaternion.setFromRotationMatrix(reticle.matrix);
 
-        // трохи підняти, щоб не “впала” в поверхню
-        obj.position.y += 0.01;
+        // Підняти на половину висоти
+        cube.position.y += 0.06;
 
-        scene.add(obj);
+        scene.add(cube);
+
+        count++;
+        statusEl.textContent = `Кубів: ${count}`;
       }
 
       async function render(t, frame) {
