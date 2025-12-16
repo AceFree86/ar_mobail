@@ -5,8 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Android AR (WebXR Hit Test + GLB)</title>
     <style>
-      html,
-      body {
+      html, body {
         margin: 0;
         height: 100%;
         overflow: hidden;
@@ -24,6 +23,7 @@
         padding: 10px 12px;
         border-radius: 12px;
         z-index: 10;
+        pointer-events: none;
       }
       #status {
         margin-top: 6px;
@@ -45,16 +45,12 @@
       import { GLTFLoader } from "https://unpkg.com/three@0.161.0/examples/jsm/loaders/GLTFLoader.js";
 
       let camera, scene, renderer;
-
-      let reticle,
-        hitTestSource = null,
-        viewerSpace = null,
-        localSpace = null;
-
+      let reticle;
+      let hitTestSource = null, viewerSpace = null, localSpace = null;
       let hitTestSourceRequested = false;
 
-      // Завантажена сцена моделі (template), яку будемо клонити при тапі
       let modelTemplate = null;
+      let controller = null;
 
       const statusEl = document.getElementById("status");
 
@@ -64,18 +60,11 @@
       function init() {
         scene = new THREE.Scene();
 
-        camera = new THREE.PerspectiveCamera(
-          70,
-          innerWidth / innerHeight,
-          0.01,
-          20
-        );
+        camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.01, 30);
 
-        // Світло (щоб PBR матеріали виглядали нормально)
-        const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
-        scene.add(hemi);
-
-        const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+        // Світло
+        scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
+        const dir = new THREE.DirectionalLight(0xffffff, 1.2);
         dir.position.set(1, 2, 1);
         scene.add(dir);
 
@@ -85,25 +74,27 @@
         renderer.xr.enabled = true;
         document.body.appendChild(renderer.domElement);
 
-        // Reticle (приціл)
+        // Reticle
         reticle = new THREE.Mesh(
           new THREE.RingGeometry(0.06, 0.08, 32).rotateX(-Math.PI / 2),
-          new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.9 })
+          new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 })
         );
         reticle.matrixAutoUpdate = false;
         reticle.visible = false;
         scene.add(reticle);
 
-        // Кнопка AR
-        const btn = ARButton.createButton(renderer, {
-          requiredFeatures: ["hit-test"],
-          optionalFeatures: ["anchors"],
-        });
-        document.body.appendChild(btn);
+        // AR Button
+        document.body.appendChild(
+          ARButton.createButton(renderer, {
+            requiredFeatures: ["hit-test"],
+            optionalFeatures: ["anchors"],
+          })
+        );
 
-        renderer.xr.addEventListener("sessionstart", () => {
-          renderer.domElement.addEventListener("click", placeModel);
-        });
+        // XR controller (важливо!)
+        controller = renderer.xr.getController(0);
+        controller.addEventListener("select", placeAtReticle);
+        scene.add(controller);
 
         renderer.xr.addEventListener("sessionend", resetXR);
 
@@ -113,7 +104,6 @@
           renderer.setSize(innerWidth, innerHeight);
         });
 
-        // Завантаження GLB (ОДИН раз)
         loadModel("./models/cube.glb");
       }
 
@@ -124,12 +114,13 @@
           (gltf) => {
             modelTemplate = gltf.scene;
 
-            // Підігнати розмір під AR (у метрах). Міняй як треба.
-            modelTemplate.scale.set(0.25, 0.25, 0.25);
+            // Дебаг: вимкнути "зникання" через frustumCulled
+            modelTemplate.traverse((o) => {
+              o.frustumCulled = false;
+            });
 
-            // На всяк випадок (інколи моделі мають зміщений pivot)
-            modelTemplate.position.set(0, 0, 0);
-            modelTemplate.rotation.set(0, 0, 0);
+            // Стартовий масштаб (часто треба крутити)
+            modelTemplate.scale.set(0.3, 0.3, 0.3);
 
             statusEl.textContent = "Модель завантажена ✅ Тапни, щоб поставити.";
             console.log("Model loaded:", url);
@@ -138,18 +129,18 @@
             if (xhr.total) {
               const p = Math.round((xhr.loaded / xhr.total) * 100);
               statusEl.textContent = `Завантаження моделі… ${p}%`;
+            } else {
+              statusEl.textContent = "Завантаження моделі…";
             }
           },
           (err) => {
-            statusEl.textContent =
-              "Помилка завантаження моделі ❌ (перевір шлях/сервер)";
-            console.error("GLB load error", err);
+            statusEl.textContent = "Помилка GLB ❌ Перевір шлях ./models/ і сервер (не file://)";
+            console.error("GLB load error:", err);
           }
         );
       }
 
       function resetXR() {
-        renderer.domElement.removeEventListener("click", placeModel);
         hitTestSourceRequested = false;
         hitTestSource = null;
         viewerSpace = null;
@@ -157,23 +148,31 @@
         reticle.visible = false;
       }
 
-      function placeModel() {
+      function placeAtReticle() {
         if (!reticle.visible) return;
 
+        // Якщо модель не завантажилась — ставимо кубик (дебаг)
         if (!modelTemplate) {
-          statusEl.textContent = "Модель ще не завантажилась…";
+          const cube = new THREE.Mesh(
+            new THREE.BoxGeometry(0.1, 0.1, 0.1),
+            new THREE.MeshStandardMaterial({ color: 0xff00ff })
+          );
+          cube.position.setFromMatrixPosition(reticle.matrix);
+          cube.quaternion.setFromRotationMatrix(reticle.matrix);
+          cube.position.y += 0.05;
+          scene.add(cube);
+
+          statusEl.textContent = "GLB ще не готовий — поставив куб (дебаг).";
           return;
         }
 
-        // Клон сцени моделі (щоб можна було ставити багато разів)
         const obj = modelTemplate.clone(true);
 
-        // Поставити в позицію/орієнтацію прицілу
         obj.position.setFromMatrixPosition(reticle.matrix);
         obj.quaternion.setFromRotationMatrix(reticle.matrix);
 
-        // Якщо треба підняти (як кубик) — розкоментуй:
-        // obj.position.y += 0.0;
+        // трохи підняти, щоб не “впала” в поверхню
+        obj.position.y += 0.01;
 
         scene.add(obj);
       }
@@ -184,12 +183,9 @@
         if (frame) {
           if (!hitTestSourceRequested) {
             viewerSpace = await session.requestReferenceSpace("viewer");
-            hitTestSource = await session.requestHitTestSource({
-              space: viewerSpace,
-            });
+            hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
             localSpace = await session.requestReferenceSpace("local");
             hitTestSourceRequested = true;
-
             session.addEventListener("end", resetXR);
           }
 
