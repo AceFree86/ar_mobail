@@ -4,6 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>iOS AR (Quick Look)</title>
+
+  <!-- Спроба підвантажити наперед -->
+  <link rel="preload" href="./models/cube.usdz" as="fetch" crossorigin>
+
   <style>
     html, body {
       margin: 0; height: 100%;
@@ -25,22 +29,10 @@
       background: #fff;
       color: #000;
       text-decoration: none;
-   
       -webkit-tap-highlight-color: transparent;
     }
-    .hint {
-      opacity: .85;
-      margin-top: 12px;
-      font-size: 14px;
-    }
-    .err {
-      margin-top: 12px;
-      font-size: 13px;
-      opacity: .9;
-      color: #ffb3b3;
-      display: none;
-      white-space: pre-line;
-    }
+    .hint { opacity: .85; margin-top: 12px; font-size: 14px; }
+    .err  { margin-top: 12px; font-size: 13px; opacity: .9; color: #ffb3b3; display:none; white-space: pre-line; }
   </style>
 </head>
 <body>
@@ -50,10 +42,8 @@
         Торкнись, щоб запустити AR
       </div>
 
-      <!-- ВАЖЛИВО: USDZ має бути доступний по HTTPS -->
-      <a id="arLink" class="btn" rel="ar" href="./models/cube.glb">
-        Start AR
-      </a>
+      <!-- ВАЖЛИВО: для iOS Quick Look тільки USDZ -->
+      <a id="arLink" class="btn" rel="ar" href="./models/cube.glb">Start AR</a>
 
       <div class="hint">
         Після запуску наведи камеру на стіл і торкнись поверхні, щоб розмістити модель.
@@ -67,7 +57,6 @@
     const arLink = document.getElementById("arLink");
     const err = document.getElementById("err");
 
-    // Перевіримо, що файл реально доступний (часта причина "не працює")
     (async () => {
       try {
         const res = await fetch(arLink.href, { method: "HEAD" });
@@ -82,13 +71,6 @@
           "3) шлях правильний (регістр літер важливий)\n";
       }
     })();
-
-    // На деяких iOS "click" інколи глючить як gesture, тому страхуємось
-    arLink.addEventListener("pointerup", () => {
-      // Нічого не робимо — перехід по href відбудеться сам
-      // Головне: це "user gesture"
-    });
   </script>
 </body>
 </html>
-
