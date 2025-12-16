@@ -3,8 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-
-    <title>Android AR (WebXR Hit Test)</title>
+    <title>Android AR (WebXR Hit Test + GLB)</title>
     <style>
       html,
       body {
@@ -24,31 +23,47 @@
         background: rgba(0, 0, 0, 0.45);
         padding: 10px 12px;
         border-radius: 12px;
+        z-index: 10;
+      }
+      #status {
+        margin-top: 6px;
+        opacity: 0.85;
+        font-size: 12px;
       }
     </style>
   </head>
   <body>
     <div id="ui">
       Натисни “Start AR”, наведи на стіл — з’явиться приціл. Тапни, щоб
-      поставити куб.
+      поставити модель.
+      <div id="status">Завантаження моделі…</div>
     </div>
 
     <script type="module">
       import * as THREE from "https://unpkg.com/three@0.161.0/build/three.module.js";
       import { ARButton } from "https://unpkg.com/three@0.161.0/examples/jsm/webxr/ARButton.js";
+      import { GLTFLoader } from "https://unpkg.com/three@0.161.0/examples/jsm/loaders/GLTFLoader.js";
 
       let camera, scene, renderer;
+
       let reticle,
         hitTestSource = null,
         viewerSpace = null,
         localSpace = null;
+
       let hitTestSourceRequested = false;
+
+      // Завантажена сцена моделі (template), яку будемо клонити при тапі
+      let modelTemplate = null;
+
+      const statusEl = document.getElementById("status");
 
       init();
       renderer.setAnimationLoop(render);
 
       function init() {
         scene = new THREE.Scene();
+
         camera = new THREE.PerspectiveCamera(
           70,
           innerWidth / innerHeight,
@@ -56,8 +71,13 @@
           20
         );
 
-        const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
-        scene.add(light);
+        // Світло (щоб PBR матеріали виглядали нормально)
+        const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
+        scene.add(hemi);
+
+        const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+        dir.position.set(1, 2, 1);
+        scene.add(dir);
 
         renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setPixelRatio(devicePixelRatio);
@@ -74,6 +94,7 @@
         reticle.visible = false;
         scene.add(reticle);
 
+        // Кнопка AR
         const btn = ARButton.createButton(renderer, {
           requiredFeatures: ["hit-test"],
           optionalFeatures: ["anchors"],
@@ -81,8 +102,9 @@
         document.body.appendChild(btn);
 
         renderer.xr.addEventListener("sessionstart", () => {
-          renderer.domElement.addEventListener("click", placeCube);
+          renderer.domElement.addEventListener("click", placeModel);
         });
+
         renderer.xr.addEventListener("sessionend", resetXR);
 
         addEventListener("resize", () => {
@@ -90,10 +112,44 @@
           camera.updateProjectionMatrix();
           renderer.setSize(innerWidth, innerHeight);
         });
+
+        // Завантаження GLB (ОДИН раз)
+        loadModel("./models/cube.glb");
+      }
+
+      function loadModel(url) {
+        const loader = new GLTFLoader();
+        loader.load(
+          url,
+          (gltf) => {
+            modelTemplate = gltf.scene;
+
+            // Підігнати розмір під AR (у метрах). Міняй як треба.
+            modelTemplate.scale.set(0.25, 0.25, 0.25);
+
+            // На всяк випадок (інколи моделі мають зміщений pivot)
+            modelTemplate.position.set(0, 0, 0);
+            modelTemplate.rotation.set(0, 0, 0);
+
+            statusEl.textContent = "Модель завантажена ✅ Тапни, щоб поставити.";
+            console.log("Model loaded:", url);
+          },
+          (xhr) => {
+            if (xhr.total) {
+              const p = Math.round((xhr.loaded / xhr.total) * 100);
+              statusEl.textContent = `Завантаження моделі… ${p}%`;
+            }
+          },
+          (err) => {
+            statusEl.textContent =
+              "Помилка завантаження моделі ❌ (перевір шлях/сервер)";
+            console.error("GLB load error", err);
+          }
+        );
       }
 
       function resetXR() {
-        renderer.domElement.removeEventListener("click", placeCube);
+        renderer.domElement.removeEventListener("click", placeModel);
         hitTestSourceRequested = false;
         hitTestSource = null;
         viewerSpace = null;
@@ -101,20 +157,25 @@
         reticle.visible = false;
       }
 
-      function placeCube() {
+      function placeModel() {
         if (!reticle.visible) return;
 
-        const geo = new THREE.BoxGeometry(0.1, 0.1, 0.1);
-        const mat = new THREE.MeshStandardMaterial();
-        const cube = new THREE.Mesh(geo, mat);
+        if (!modelTemplate) {
+          statusEl.textContent = "Модель ще не завантажилась…";
+          return;
+        }
 
-        cube.position.setFromMatrixPosition(reticle.matrix);
-        cube.quaternion.setFromRotationMatrix(reticle.matrix);
+        // Клон сцени моделі (щоб можна було ставити багато разів)
+        const obj = modelTemplate.clone(true);
 
-        // Підняти на половину висоти куба, щоб стояв на столі
-        cube.position.y += 0.05;
+        // Поставити в позицію/орієнтацію прицілу
+        obj.position.setFromMatrixPosition(reticle.matrix);
+        obj.quaternion.setFromRotationMatrix(reticle.matrix);
 
-        scene.add(cube);
+        // Якщо треба підняти (як кубик) — розкоментуй:
+        // obj.position.y += 0.0;
+
+        scene.add(obj);
       }
 
       async function render(t, frame) {
