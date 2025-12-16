@@ -19,29 +19,27 @@
         bottom: 12px;
         color: #fff;
         font: 14px/1.4 system-ui, sans-serif;
-        background: rgba(0,0,0,.45);
+        background: rgba(0, 0, 0, 0.45);
         padding: 10px 12px;
         border-radius: 12px;
         z-index: 10;
+        pointer-events: none;
       }
-      #status { margin-top: 6px; opacity: .9; font-size: 12px; white-space: pre-wrap; }
-      #ui b { font-weight: 700; }
+      #status {
+        margin-top: 6px;
+        opacity: 0.85;
+        font-size: 12px;
+      }
     </style>
   </head>
   <body>
     <div id="ui">
-      <b>1)</b> Натисни “Start AR” → <b>2)</b> наведи на стіл → <b>3)</b> тапни, щоб поставити.
-      <div id="status">Ініціалізація…</div>
+      Натисни “Start AR”, наведи на стіл — з’явиться приціл. Тапни, щоб
+      поставити модель.
+      <div id="status">Завантаження моделі…</div>
     </div>
 
     <script type="module">
-      const statusEl = document.getElementById("status");
-      const say = (t) => (statusEl.textContent = String(t));
-
-      // Ловимо будь-які помилки модулів/коду — щоб не було "просто чорне"
-      window.addEventListener("error", (e) => say("JS error:\n" + (e?.message || e)));
-      window.addEventListener("unhandledrejection", (e) => say("Promise error:\n" + (e?.reason?.message || e?.reason || e)));
-
       import * as THREE from "https://unpkg.com/three@0.161.0/build/three.module.js";
       import { ARButton } from "https://unpkg.com/three@0.161.0/examples/jsm/webxr/ARButton.js";
       import { GLTFLoader } from "https://unpkg.com/three@0.161.0/examples/jsm/loaders/GLTFLoader.js";
@@ -54,13 +52,17 @@
       let modelTemplate = null;
       let controller = null;
 
+      const statusEl = document.getElementById("status");
+
       init();
+      renderer.setAnimationLoop(render);
 
       function init() {
         scene = new THREE.Scene();
-        camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.01, 50);
 
-        // світло
+        camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.01, 30);
+
+        // Світло
         scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
         const dir = new THREE.DirectionalLight(0xffffff, 1.2);
         dir.position.set(1, 2, 1);
@@ -72,13 +74,7 @@
         renderer.xr.enabled = true;
         document.body.appendChild(renderer.domElement);
 
-        // якщо WebGL контекст злетів
-        renderer.domElement.addEventListener("webglcontextlost", (e) => {
-          e.preventDefault();
-          say("WebGL context lost ❌");
-        });
-
-        // reticle
+        // Reticle
         reticle = new THREE.Mesh(
           new THREE.RingGeometry(0.06, 0.08, 32).rotateX(-Math.PI / 2),
           new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 })
@@ -87,14 +83,15 @@
         reticle.visible = false;
         scene.add(reticle);
 
-        // AR кнопка
-        const btn = ARButton.createButton(renderer, {
-          requiredFeatures: ["hit-test"],
-          optionalFeatures: ["anchors"],
-        });
-        document.body.appendChild(btn);
+        // AR Button
+        document.body.appendChild(
+          ARButton.createButton(renderer, {
+            requiredFeatures: ["hit-test"],
+            optionalFeatures: ["anchors"],
+          })
+        );
 
-        // controller tap
+        // XR controller (важливо!)
         controller = renderer.xr.getController(0);
         controller.addEventListener("select", placeAtReticle);
         scene.add(controller);
@@ -107,11 +104,7 @@
           renderer.setSize(innerWidth, innerHeight);
         });
 
-        // модель
         loadModel("https://acefree86.github.io/ar_mobail/models/cube.glb");
-
-        say("Готово. Натисни Start AR.");
-        renderer.setAnimationLoop(render);
       }
 
       function loadModel(url) {
@@ -121,27 +114,27 @@
           (gltf) => {
             modelTemplate = gltf.scene;
 
+            // Дебаг: вимкнути "зникання" через frustumCulled
             modelTemplate.traverse((o) => {
               o.frustumCulled = false;
             });
 
-            // стартовий масштаб — часто треба змінювати
-            modelTemplate.scale.set(0.2, 0.2, 0.2);
+            // Стартовий масштаб (часто треба крутити)
+            modelTemplate.scale.set(0.3, 0.3, 0.3);
 
-            say("Модель завантажена ✅ Натисни Start AR, потім тапни.");
+            statusEl.textContent = "Модель завантажена ✅ Тапни, щоб поставити.";
             console.log("Model loaded:", url);
           },
           (xhr) => {
             if (xhr.total) {
               const p = Math.round((xhr.loaded / xhr.total) * 100);
-              say(`Завантаження моделі… ${p}%`);
+              statusEl.textContent = `Завантаження моделі… ${p}%`;
             } else {
-              say("Завантаження моделі…");
+              statusEl.textContent = "Завантаження моделі…";
             }
           },
           (err) => {
-            modelTemplate = null;
-            say("Помилка GLB ❌\n" + (err?.message || "Перевір шлях ./models/ і сервер (не file://)"));
+            statusEl.textContent = "Помилка GLB ❌ Перевір шлях ./models/ і сервер (не file://)";
             console.error("GLB load error:", err);
           }
         );
@@ -158,7 +151,7 @@
       function placeAtReticle() {
         if (!reticle.visible) return;
 
-        // fallback: якщо GLB не завантажився — ставимо простий куб
+        // Якщо модель не завантажилась — ставимо кубик (дебаг)
         if (!modelTemplate) {
           const cube = new THREE.Mesh(
             new THREE.BoxGeometry(0.1, 0.1, 0.1),
@@ -168,26 +161,26 @@
           cube.quaternion.setFromRotationMatrix(reticle.matrix);
           cube.position.y += 0.05;
           scene.add(cube);
-          say("GLB не готовий → поставив куб (fallback).");
+
+          statusEl.textContent = "GLB ще не готовий — поставив куб (дебаг).";
           return;
         }
 
         const obj = modelTemplate.clone(true);
+
         obj.position.setFromMatrixPosition(reticle.matrix);
         obj.quaternion.setFromRotationMatrix(reticle.matrix);
+
+        // трохи підняти, щоб не “впала” в поверхню
         obj.position.y += 0.01;
+
         scene.add(obj);
       }
 
       async function render(t, frame) {
-        // якщо AR ще не стартував — просто рендеримо (без hit-test)
         const session = renderer.xr.getSession();
-        if (!session || !frame) {
-          renderer.render(scene, camera);
-          return;
-        }
 
-        try {
+        if (frame) {
           if (!hitTestSourceRequested) {
             viewerSpace = await session.requestReferenceSpace("viewer");
             hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
@@ -204,10 +197,6 @@
           } else {
             reticle.visible = false;
           }
-        } catch (e) {
-          // якщо щось пішло не так — не валимо весь рендер-луп
-          console.error(e);
-          say("Render error:\n" + (e?.message || e));
         }
 
         renderer.render(scene, camera);
